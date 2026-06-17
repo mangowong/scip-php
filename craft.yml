@@ -1,4 +1,4 @@
 php-version: 8.3
-extensions: "tokenizer,filter,mbstring,phar"
+extensions: "tokenizer,filter,mbstring,phar,ctype"
 sapi:
   - micro
