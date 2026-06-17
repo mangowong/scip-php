@@ -48,6 +48,7 @@ jobs:
         run: |
           curl -o ${{ matrix.spc_bin }} https://dl.static-php.dev/static-php-cli/spc-bin/nightly/${{ matrix.spc_bin }}
           chmod +x ${{ matrix.spc_bin }}
+          ./${{ matrix.spc_bin }} --version
 
       - name: Install Box
         shell: bash
@@ -57,6 +58,10 @@ jobs:
 
       - name: Build PHAR
         run: php box.phar compile
+
+      - name: Verify PHAR
+        shell: bash
+        run: php scip-php.phar --help
 
       - name: Run SPC doctor
         if: runner.os != 'Windows'
@@ -68,21 +73,27 @@ jobs:
 
       - name: Build micro SAPI (Linux)
         if: runner.os == 'Linux'
-        run: ./${{ matrix.spc_bin }} build --build-micro "tokenizer,filter,mbstring,phar"
+        run: ./${{ matrix.spc_bin }} build --build-micro "tokenizer,filter,mbstring,phar" -vv
         env:
           SPC_LIBC: ${{ matrix.spc_libc }}
 
       - name: Build micro SAPI (macOS)
         if: runner.os == 'macOS'
-        run: ./${{ matrix.spc_bin }} build --build-micro "tokenizer,filter,mbstring,phar"
+        run: ./${{ matrix.spc_bin }} build --build-micro "tokenizer,filter,mbstring,phar" -vv
 
       - name: Build micro SAPI (Windows)
         if: runner.os == 'Windows'
-        run: ./${{ matrix.spc_bin }} build --build-micro "tokenizer,filter,mbstring,phar"
+        run: ./${{ matrix.spc_bin }} build --build-micro "tokenizer,filter,mbstring,phar" -vv
 
       - name: Combine binary
         shell: bash
-        run: ./${{ matrix.spc_bin }} micro:combine scip-php.phar --output ${{ matrix.output }} -I "memory_limit=1G"
+        run: |
+          echo "Files in buildroot:"
+          ls -la buildroot/bin/ 2>/dev/null || echo "No buildroot/bin/"
+          echo "Micro SFX files:"
+          find . -name "micro.sfx" -o -name "*.sfx" 2>/dev/null || echo "No .sfx files found"
+          ./${{ matrix.spc_bin }} micro:combine scip-php.phar --output ${{ matrix.output }} -I "memory_limit=1G" -vv
+          ls -la ${{ matrix.output }} 2>/dev/null || echo "Output file not found!"
 
       - name: Smoke test (Linux/macOS)
         if: runner.os != 'Windows'
