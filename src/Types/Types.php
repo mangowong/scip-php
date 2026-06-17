@@ -68,6 +68,9 @@ final class Types
     /** @var array<non-empty-string, true> */
     private array $seenDepFiles;
 
+    /** @var array<non-empty-string, list<array{symbol: non-empty-string, is_reference: bool, is_implementation: bool}>> */
+    private array $relationships;
+
     public function __construct(
         private readonly Composer $composer,
         private readonly SymbolNamer $namer,
@@ -78,6 +81,16 @@ final class Types
         $this->uppers = [];
         $this->defs = [];
         $this->seenDepFiles = [];
+        $this->relationships = [];
+    }
+
+    /**
+     * @param  non-empty-string  $symbol
+     * @return list<array{symbol: non-empty-string, is_reference: bool, is_implementation: bool}>
+     */
+    public function relationships(string $symbol): array
+    {
+        return $this->relationships[$symbol] ?? [];
     }
 
     /** @return ?non-empty-string */
@@ -389,18 +402,22 @@ final class Types
         foreach ($c->getTraitUses() as $use) {
             foreach ($use->traits as $t) {
                 $this->addUpper($name, $t);
+                $this->addRelationship($name, $t, true, true);
             }
         }
         if ($c instanceof Class_) {
             if ($c->extends !== null) {
                 $this->addUpper($name, $c->extends);
+                $this->addRelationship($name, $c->extends, false, true);
             }
             foreach ($c->implements as $i) {
                 $this->addUpper($name, $i);
+                $this->addRelationship($name, $i, false, true);
             }
         } elseif ($c instanceof Interface_) {
             foreach ($c->extends as $i) {
                 $this->addUpper($name, $i);
+                $this->addRelationship($name, $i, false, true);
             }
         }
 
@@ -438,5 +455,22 @@ final class Types
         }
         $this->uppers[$c][] = $name;
         $this->defs[$name] = new NamedType($name);
+    }
+
+    /** @param  non-empty-string  $c */
+    private function addRelationship(string $c, Name $upper, bool $isReference, bool $isImplementation): void
+    {
+        $name = $this->namer->name($upper);
+        if ($name === null) {
+            return;
+        }
+        if (!isset($this->relationships[$c])) {
+            $this->relationships[$c] = [];
+        }
+        $this->relationships[$c][] = [
+            'symbol'            => $name,
+            'is_reference'      => $isReference,
+            'is_implementation' => $isImplementation,
+        ];
     }
 }

@@ -26,9 +26,13 @@ use PhpParser\Node\Stmt\EnumCase;
 use PhpParser\Node\Stmt\Function_;
 use PhpParser\Node\Stmt\Namespace_;
 use PhpParser\Node\Stmt\Property;
+use PhpParser\Node\UseItem;
 use PHPStan\PhpDocParser\Ast\Attribute;
 use PHPStan\PhpDocParser\Ast\PhpDoc\PhpDocTagValueNode;
+use Scip\Document;
+use Scip\Language;
 use Scip\Occurrence;
+use Scip\Relationship;
 use Scip\SymbolInformation;
 use Scip\SymbolRole;
 use Scip\SyntaxKind;
@@ -168,7 +172,9 @@ final class DocIndexer
             }
             $symbol = $this->types->nameDef($n);
             if ($symbol !== null) {
-                $this->ref($pos, $symbol, $n);
+                $parent = $n->getAttribute('parent');
+                $role = $parent instanceof UseItem ? SymbolRole::Import : SymbolRole::ReadAccess;
+                $this->ref($pos, $symbol, $n, SyntaxKind::Identifier, $role);
             }
             return;
         }
@@ -197,11 +203,33 @@ final class DocIndexer
         if ($symbol === null) {
             return;
         }
-        $doc = $this->docGenerator->create($n);
-        $this->symbols[$symbol] = new SymbolInformation([
-            'symbol'        => $symbol,
-            'documentation' => $doc,
+        $result = $this->docGenerator->create($n);
+        $symKind = KindResolver::kind($n);
+        $displayName = KindResolver::displayName($n);
+        $rels = $this->types->relationships($symbol);
+        $relationships = [];
+        foreach ($rels as $r) {
+            $relationships[] = new Relationship([
+                'symbol'            => $r['symbol'],
+                'is_reference'      => $r['is_reference'],
+                'is_implementation' => $r['is_implementation'],
+            ]);
+        }
+        $signDoc = new Document([
+            'language' => Language::PHP,
+            'text'     => $result['sign'],
         ]);
+        $info = [
+            'symbol'                  => $symbol,
+            'documentation'           => $result['doc'],
+            'kind'                    => $symKind,
+            'signature_documentation' => $signDoc,
+            'relationships'           => $relationships,
+        ];
+        if ($displayName !== null) {
+            $info['display_name'] = $displayName;
+        }
+        $this->symbols[$symbol] = new SymbolInformation($info);
         $this->occurrences[] = new Occurrence([
             'range'        => $pos->pos($posNode),
             'symbol'       => $symbol,
@@ -257,7 +285,7 @@ final class DocIndexer
         string $symbol,
         Node $posNode,
         int $kind = SyntaxKind::Identifier,
-        int $role = SymbolRole::UnspecifiedSymbolRole,
+        int $role = SymbolRole::ReadAccess,
     ): void {
         if (!str_starts_with($symbol, 'local ')) {
             $ident = $this->namer->extractIdent($symbol);
