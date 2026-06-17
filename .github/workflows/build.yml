@@ -1,0 +1,113 @@
+name: Build Standalone Binaries
+
+on:
+  workflow_dispatch:
+    inputs:
+      php_version:
+        description: 'PHP version'
+        default: '8.3'
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            spc_bin: spc-linux-x86_64
+            output: scip-php-linux-x86_64
+            spc_libc: glibc
+          - os: macos-14
+            spc_bin: spc-macos-aarch64
+            output: scip-php-darwin-arm64
+          - os: macos-13
+            spc_bin: spc-macos-x86_64
+            output: scip-php-darwin-x86_64
+          - os: windows-latest
+            spc_bin: spc-windows-x64.exe
+            output: scip-php-windows-x86_64.exe
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ inputs.php_version || '8.3' }}
+          tools: composer:v2
+
+      - name: Install Composer dependencies
+        run: composer install --no-dev --optimize-autoloader
+
+      - name: Download SPC
+        shell: bash
+        run: |
+          curl -o ${{ matrix.spc_bin }} https://dl.static-php.dev/static-php-cli/spc-bin/nightly/${{ matrix.spc_bin }}
+          chmod +x ${{ matrix.spc_bin }}
+
+      - name: Install Box
+        shell: bash
+        run: |
+          curl -LSs https://github.com/box-project/box/releases/latest/download/box.phar -o box.phar
+          chmod +x box.phar
+
+      - name: Build PHAR
+        run: php box.phar compile
+
+      - name: Run SPC doctor
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          ./${{ matrix.spc_bin }} doctor --auto-fix
+        env:
+          SPC_SKIP_DOCTOR_CHECK_ITEMS: linux-musl-wrapper
+
+      - name: Build micro SAPI (Linux)
+        if: runner.os == 'Linux'
+        run: ./${{ matrix.spc_bin }} build --build-micro "tokenizer,filter,mbstring,phar"
+        env:
+          SPC_LIBC: ${{ matrix.spc_libc }}
+
+      - name: Build micro SAPI (macOS)
+        if: runner.os == 'macOS'
+        run: ./${{ matrix.spc_bin }} build --build-micro "tokenizer,filter,mbstring,phar"
+
+      - name: Build micro SAPI (Windows)
+        if: runner.os == 'Windows'
+        run: ./${{ matrix.spc_bin }} build --build-micro "tokenizer,filter,mbstring,phar"
+
+      - name: Combine binary
+        shell: bash
+        run: ./${{ matrix.spc_bin }} micro:combine scip-php.phar --output ${{ matrix.output }} -I "memory_limit=1G"
+
+      - name: Smoke test (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          chmod +x ./${{ matrix.output }}
+          ./${{ matrix.output }} --help
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.output }}
+          path: ${{ matrix.output }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*

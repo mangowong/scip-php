@@ -82,6 +82,25 @@ final class Composer
         return implode(DIRECTORY_SEPARATOR, [$elem, ...$elems]);
     }
 
+    /**
+     * @param  non-empty-string  $path
+     * @return non-empty-string
+     */
+    private static function resolvePath(string $path): string
+    {
+        if (str_starts_with($path, 'phar://')) {
+            if (!is_dir($path)) {
+                throw new RuntimeException("Invalid path: {$path}.");
+            }
+            return $path;
+        }
+        $resolved = realpath($path);
+        if ($resolved === false) {
+            throw new RuntimeException("Cannot resolve path: {$path}.");
+        }
+        return $resolved;
+    }
+
     /** @param  non-empty-string  $projectRoot */
     public function __construct(private readonly string $projectRoot)
     {
@@ -90,7 +109,7 @@ final class Composer
         $autoloadDev = is_array($json['autoload-dev'] ?? null) ? $json['autoload-dev'] : [];
 
         $scipPhpVendorDir = self::join(__DIR__, '..', '..', 'vendor');
-        if (realpath($scipPhpVendorDir) === false) {
+        if (!is_dir($scipPhpVendorDir)) {
             // If the vendor directory relative to this file is not found, scip-php probably runs as a
             // dev dependency of the project that it analyses and shares the vendor directory with it.
             $cwd = getcwd();
@@ -98,15 +117,11 @@ final class Composer
                 throw new RuntimeException("Cannot get the current working directory.");
             }
             $scipPhpVendorDir = self::join($cwd, 'vendor');
-            if (realpath($scipPhpVendorDir) === false) {
+            if (!is_dir($scipPhpVendorDir)) {
                 throw new RuntimeException("Invalid scip-php vendor directory: {$scipPhpVendorDir}.");
             }
         }
-        $scipPhpVendorDirRealPath = realpath($scipPhpVendorDir);
-        if ($scipPhpVendorDirRealPath === false) {
-            throw new RuntimeException("Cannot get absoute path to {$scipPhpVendorDir}.");
-        }
-        $this->scipPhpVendorDir = $scipPhpVendorDirRealPath;
+        $this->scipPhpVendorDir = self::resolvePath($scipPhpVendorDir);
 
         $bin = [];
         if (is_array($json['bin'] ?? null)) {
@@ -179,10 +194,7 @@ final class Composer
                 if (!is_array($info) || !is_string($info['install_path'] ?? null)) {
                     continue;
                 }
-                $path = realpath($info['install_path']);
-                if ($path === false) {
-                    throw new RuntimeException("Invalid install path of package {$name}: {$info['install_path']}.");
-                }
+                $path = self::resolvePath($info['install_path']);
                 if ($name !== $this->pkgName && is_string($info['reference']) && $info['reference'] !== '') {
                     $pkgsByPaths[$path] = ['name' => $name, 'version' => $info['reference']];
                 }
@@ -308,7 +320,7 @@ final class Composer
                 continue;
             }
             $p = self::join($this->projectRoot, $p);
-            $p = realpath($p);
+            $p = str_starts_with($p, 'phar://') ? $p : realpath($p);
             if ($p !== false) {
                 $files[] = $p;
             }
@@ -368,6 +380,12 @@ final class Composer
         $stub = $this->stub($ident);
         if ($stub !== null) {
             $f = self::join($this->scipPhpVendorDir, 'jetbrains', 'phpstorm-stubs', $stub);
+            if (str_starts_with($f, 'phar://')) {
+                if (!is_file($f)) {
+                    throw new RuntimeException("Invalid path to stub file: {$stub}.");
+                }
+                return $f;
+            }
             $f = realpath($f);
             if ($f === false) {
                 throw new RuntimeException("Invalid path to stub file: {$stub}.");
@@ -377,6 +395,9 @@ final class Composer
 
         $f = $this->loader->findFile($ident);
         if ($f !== false) {
+            if (str_starts_with($f, 'phar://')) {
+                return $f;
+            }
             $f = realpath($f);
             if ($f !== false) {
                 return $f;
@@ -515,7 +536,9 @@ final class Composer
             if ($f === '') {
                 continue;
             }
-            $f = realpath($f);
+            if (!str_starts_with($f, 'phar://')) {
+                $f = realpath($f);
+            }
             if ($f === false) {
                 continue;
             }
