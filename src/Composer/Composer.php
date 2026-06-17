@@ -29,6 +29,7 @@ use function getcwd;
 use function implode;
 use function interface_exists;
 use function is_array;
+use function is_dir;
 use function is_file;
 use function is_string;
 use function json_decode;
@@ -191,7 +192,7 @@ final class Composer
                 }
                 // Replaced packages do not have an install path.
                 // See https://getcomposer.org/doc/04-schema.md#replace
-                if (!is_array($info) || !is_string($info['install_path'] ?? null)) {
+                if (!is_array($info) || !is_string($info['install_path'] ?? null) || $info['install_path'] === '') {
                     continue;
                 }
                 $path = self::resolvePath($info['install_path']);
