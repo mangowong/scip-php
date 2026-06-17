@@ -19,7 +19,6 @@ jobs:
           - os: ubuntu-latest
             spc_bin: spc-linux-x86_64
             output: scip-php-linux-x86_64
-            spc_libc: glibc
           - os: macos-14
             spc_bin: spc-macos-aarch64
             output: scip-php-darwin-arm64
@@ -46,7 +45,7 @@ jobs:
       - name: Download SPC
         shell: bash
         run: |
-          curl -o ${{ matrix.spc_bin }} https://dl.static-php.dev/static-php-cli/spc-bin/nightly/${{ matrix.spc_bin }}
+          curl -fsSL -o ${{ matrix.spc_bin }} https://dl.static-php.dev/static-php-cli/spc-bin/nightly/${{ matrix.spc_bin }}
           chmod +x ${{ matrix.spc_bin }}
           ./${{ matrix.spc_bin }} --version
 
@@ -63,43 +62,27 @@ jobs:
         shell: bash
         run: php scip-php.phar --help
 
-      - name: Run SPC doctor
-        if: runner.os != 'Windows'
+      - name: Build static PHP with micro SAPI
         shell: bash
         run: |
-          ./${{ matrix.spc_bin }} doctor --auto-fix
-        env:
-          SPC_SKIP_DOCTOR_CHECK_ITEMS: linux-musl-wrapper
-
-      - name: Build micro SAPI (Linux)
-        if: runner.os == 'Linux'
-        run: ./${{ matrix.spc_bin }} build --build-micro "tokenizer,filter,mbstring,phar" -vv
-        env:
-          SPC_LIBC: ${{ matrix.spc_libc }}
-
-      - name: Build micro SAPI (macOS)
-        if: runner.os == 'macOS'
-        run: ./${{ matrix.spc_bin }} build --build-micro "tokenizer,filter,mbstring,phar" -vv
-
-      - name: Build micro SAPI (Windows)
-        if: runner.os == 'Windows'
-        run: ./${{ matrix.spc_bin }} build --build-micro "tokenizer,filter,mbstring,phar" -vv
+          ./${{ matrix.spc_bin }} doctor --auto-fix 2>&1 || true
+          ./${{ matrix.spc_bin }} craft --debug 2>&1
 
       - name: Combine binary
         shell: bash
         run: |
-          echo "Files in buildroot:"
-          ls -la buildroot/bin/ 2>/dev/null || echo "No buildroot/bin/"
-          echo "Micro SFX files:"
-          find . -name "micro.sfx" -o -name "*.sfx" 2>/dev/null || echo "No .sfx files found"
-          ./${{ matrix.spc_bin }} micro:combine scip-php.phar --output ${{ matrix.output }} -I "memory_limit=1G" -vv
-          ls -la ${{ matrix.output }} 2>/dev/null || echo "Output file not found!"
+          ./${{ matrix.spc_bin }} micro:combine scip-php.phar -O ${{ matrix.output }}
+          ls -la ${{ matrix.output }} || echo "Output file not found!"
 
       - name: Smoke test (Linux/macOS)
         if: runner.os != 'Windows'
         run: |
           chmod +x ./${{ matrix.output }}
           ./${{ matrix.output }} --help
+
+      - name: Smoke test (Windows)
+        if: runner.os == 'Windows'
+        run: .\${{ matrix.output }} --help
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
