@@ -1,9 +1,5 @@
 {
     "main": "bin/scip-php",
     "output": "scip-php.phar",
-    "directories": [
-        "src",
-        "vendor"
-    ],
     "compression": "GZ"
 }

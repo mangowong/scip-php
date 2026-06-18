@@ -12,11 +12,19 @@ use Scip\PositionEncoding;
 use Scip\TextEncoding;
 use Scip\ToolInfo;
 use ScipPhp\Composer\Composer;
+use ScipPhp\Composer\ProjectFiles;
+use ScipPhp\File\Reader;
 use ScipPhp\Parser\Parser;
 use ScipPhp\Types\Types;
 
+use RuntimeException;
+
 use function array_values;
+use function is_array;
+use function json_decode;
 use function str_replace;
+
+use const JSON_THROW_ON_ERROR;
 
 final readonly class Indexer
 {
@@ -29,6 +37,9 @@ final readonly class Indexer
     private SymbolNamer $namer;
 
     private Types $types;
+
+    /** @var list<non-empty-string> */
+    private array $projectFiles;
 
     /**
      * @param  non-empty-string        $projectRoot
@@ -52,19 +63,47 @@ final readonly class Indexer
         ]);
 
         $this->parser = new Parser();
-        $this->composer = new Composer($this->projectRoot);
+
+        $json = $this->parseComposerJson();
+        $autoload = is_array($json['autoload'] ?? null) ? $json['autoload'] : [];
+        $autoloadDev = is_array($json['autoload-dev'] ?? null) ? $json['autoload-dev'] : [];
+        $bin = is_array($json['bin'] ?? null) ? $json['bin'] : [];
+
+        $projectFiles = new ProjectFiles($this->projectRoot, $autoload, $autoloadDev, $bin);
+        $this->projectFiles = $projectFiles->projectFiles();
+
+        $this->composer = new Composer($this->projectRoot, $this->projectFiles);
         $this->namer = new SymbolNamer($this->composer);
         $this->types = new Types($this->composer, $this->namer);
     }
 
+    /** @return array<array-key, mixed> */
+    private function parseComposerJson(): array
+    {
+        $content = Reader::read($this->projectRoot . '/composer.json');
+        $json = json_decode($content, associative: true, flags: JSON_THROW_ON_ERROR);
+        if (!is_array($json)) {
+            throw new RuntimeException("Cannot parse composer.json.");
+        }
+        return $json;
+    }
+
     public function index(): Index
     {
-        $projectFiles = $this->composer->projectFiles();
-        $this->types->collect(...$projectFiles);
+        $this->types->collect(...$this->projectFiles);
 
         $documents = [];
         $extSymbols = [];
-        foreach ($projectFiles as $filename) {
+        $total = count($this->projectFiles);
+        $lastPct = -1;
+        $isTty = function_exists('posix_isatty') && posix_isatty(STDOUT);
+        foreach ($this->projectFiles as $i => $filename) {
+            $n = $i + 1;
+            $pct = $total > 0 ? (int) ($n / $total * 100) : 100;
+            if ($isTty && $pct !== $lastPct) {
+                echo "Indexing: {$pct}% ({$n}/{$total})\r";
+                $lastPct = $pct;
+            }
             $indexer = new DocIndexer($this->composer, $this->namer, $this->types);
             $this->parser->traverse($filename, $indexer, $indexer->index(...));
             $documents[] = new Document([
@@ -77,6 +116,9 @@ final readonly class Indexer
             foreach ($indexer->extSymbols as $symbol => $info) {
                 $extSymbols[$symbol] = $info;
             }
+        }
+        if ($isTty) {
+            echo "Indexing: 100% ({$total}/{$total}) - done          \n";
         }
 
         return new Index([

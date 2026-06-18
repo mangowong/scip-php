@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace ScipPhp\Composer;
 
-use Composer\Autoload\ClassLoader;
-use Composer\ClassMapGenerator\ClassMapGenerator;
 use Composer\ClassMapGenerator\PhpFileParser;
 use JetBrains\PHPStormStub\PhpStormStubsMap;
 use ReflectionClass;
@@ -14,12 +12,8 @@ use RuntimeException;
 use ScipPhp\File\Reader;
 
 use function array_keys;
-use function array_merge;
-use function array_slice;
-use function array_unique;
-use function array_values;
+use function array_key_exists;
 use function class_exists;
-use function count;
 use function enum_exists;
 use function explode;
 use function function_exists;
@@ -37,7 +31,6 @@ use function preg_match;
 use function preg_quote;
 use function preg_replace;
 use function realpath;
-use function rtrim;
 use function str_contains;
 use function str_replace;
 use function str_starts_with;
@@ -62,16 +55,156 @@ final class Composer
     /** @var non-empty-string */
     private readonly string $scipPhpVendorDir;
 
-    /** @var list<non-empty-string> */
-    private readonly array $projectFiles;
-
-    private readonly ClassLoader $loader;
+    private readonly ClassMap $classMap;
 
     /** @var non-empty-array<non-empty-string, array{name: non-empty-string, version: non-empty-string}> */
     private array $pkgsByPaths;
 
     /** @var array<non-empty-string, scalar> */
     private readonly array $userConsts;
+
+    /**
+     * @param  non-empty-string  $projectRoot
+     * @param  list<non-empty-string>  $projectFiles
+     */
+    public function __construct(
+        private readonly string $projectRoot,
+        array $projectFiles,
+    ) {
+        $scipPhpVendorDir = self::join(__DIR__, '..', '..', 'vendor');
+        if (!is_dir($scipPhpVendorDir)) {
+            $cwd = getcwd();
+            if ($cwd === false) {
+                throw new RuntimeException("Cannot get the current working directory.");
+            }
+            $scipPhpVendorDir = self::join($cwd, 'vendor');
+            if (!is_dir($scipPhpVendorDir)) {
+                throw new RuntimeException("Invalid scip-php vendor directory: {$scipPhpVendorDir}.");
+            }
+        }
+        $this->scipPhpVendorDir = self::resolvePath($scipPhpVendorDir);
+
+        $json = $this->parseJson('composer.json');
+        $vendorDir = 'vendor';
+        if (
+            is_array($json['config'] ?? null)
+            && is_string($json['config']['vendor-dir'] ?? null)
+        ) {
+            $dir = trim($json['config']['vendor-dir'], '/');
+            if ($dir !== '') {
+                $vendorDir = $dir;
+            }
+        }
+        $this->vendorDir = self::join($projectRoot, $vendorDir);
+
+        $this->classMap = new ClassMap($this->vendorDir);
+
+        $additionalClasses = [];
+        foreach ($projectFiles as $f) {
+            $classes = PhpFileParser::findClasses($f);
+            foreach ($classes as $c) {
+                if ($this->classMap->findFile($c) === null) {
+                    $additionalClasses[$c] = $f;
+                }
+            }
+        }
+        if (count($additionalClasses) > 0) {
+            $this->classMap->addClassMap($additionalClasses);
+        }
+
+        $installed = require self::join($this->vendorDir, 'composer', 'installed.php');
+
+        if (!is_array($installed) || !is_array($installed['root'])) {
+            throw new RuntimeException("Cannot get root element from installed.php.");
+        }
+
+        $pkgName = $installed['root']['name'];
+        if (!is_string($pkgName) || $pkgName === '') {
+            throw new RuntimeException("Cannot get package name.");
+        }
+        $this->pkgName = $pkgName;
+
+        $pkgVersion = $installed['root']['reference'] ?? $installed['root']['version'];
+        if (!is_string($pkgVersion) || $pkgVersion === '') {
+            throw new RuntimeException("Cannot get package version.");
+        }
+        $this->pkgVersion = $pkgVersion;
+
+        $pkgsByPaths = [];
+        if (is_array($installed['versions'])) {
+            foreach ($installed['versions'] as $name => $info) {
+                if (!is_string($name) || $name === '') {
+                    continue;
+                }
+                if (!is_array($info) || !is_string($info['install_path'] ?? null) || $info['install_path'] === '') {
+                    continue;
+                }
+                $path = self::resolvePath($info['install_path']);
+                if ($name !== $this->pkgName && is_string($info['reference']) && $info['reference'] !== '') {
+                    $pkgsByPaths[$path] = ['name' => $name, 'version' => $info['reference']];
+                    // Also add the vendor directory path for files found via ClassMap
+                    $vendorPath = self::join($this->vendorDir, ...explode('/', $name));
+                    if (is_dir($vendorPath) && !isset($pkgsByPaths[$vendorPath])) {
+                        $pkgsByPaths[$vendorPath] = ['name' => $name, 'version' => $info['reference']];
+                    }
+                }
+            }
+        }
+
+        $composerPath = self::join($this->vendorDir, 'composer');
+        $pkgsByPaths[$composerPath] = ['name' => 'composer', 'version' => 'dev'];
+        $this->pkgsByPaths = $pkgsByPaths;
+
+        if (is_file(self::join($this->projectRoot, 'composer.lock'))) {
+            $lock = $this->parseJson('composer.lock');
+            if (is_array($lock['packages'] ?? null)) {
+                foreach ($lock['packages'] as $pkg) {
+                    if (
+                        !is_array($pkg)
+                        || !is_array($pkg['autoload'] ?? null)
+                        || !is_array($pkg['autoload']['files'] ?? null)
+                        || !is_string($pkg['name'] ?? null)
+                        || $pkg['name'] === ''
+                    ) {
+                        continue;
+                    }
+                    foreach ($pkg['autoload']['files'] as $f) {
+                        if (!is_string($f) || $f === '') {
+                            continue;
+                        }
+                        $f = self::join($this->vendorDir, $pkg['name'], $f);
+                        $classes = PhpFileParser::findClasses($f);
+                        foreach ($classes as $c) {
+                            if ($this->classMap->findFile($c) === null) {
+                                $additionalClasses[$c] = $f;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if (count($additionalClasses) > 0) {
+            $this->classMap->addClassMap($additionalClasses);
+        }
+
+        // Include files autoload entries so project functions/constants
+        // are discoverable via function_exists() and get_defined_constants().
+        // This replaces the old ClassLoader registration without side effects.
+        $composerDir = $this->vendorDir . '/composer';
+        $autoloadFiles = $composerDir . '/autoload_files.php';
+        if (is_file($autoloadFiles)) {
+            $files = require $autoloadFiles;
+            if (is_array($files)) {
+                foreach ($files as $f) {
+                    if (is_string($f) && $f !== '' && is_file($f)) {
+                        include_once $f;
+                    }
+                }
+            }
+        }
+
+        $this->userConsts = get_defined_constants(categorize: true)['user'] ?? []; // @phpstan-ignore-line
+    }
 
     /**
      * @param  non-empty-string  $elem
@@ -102,146 +235,7 @@ final class Composer
         return $resolved;
     }
 
-    /** @param  non-empty-string  $projectRoot */
-    public function __construct(private readonly string $projectRoot)
-    {
-        $json = $this->parseJson('composer.json');
-        $autoload = is_array($json['autoload'] ?? null) ? $json['autoload'] : [];
-        $autoloadDev = is_array($json['autoload-dev'] ?? null) ? $json['autoload-dev'] : [];
-
-        $scipPhpVendorDir = self::join(__DIR__, '..', '..', 'vendor');
-        if (!is_dir($scipPhpVendorDir)) {
-            // If the vendor directory relative to this file is not found, scip-php probably runs as a
-            // dev dependency of the project that it analyses and shares the vendor directory with it.
-            $cwd = getcwd();
-            if ($cwd === false) {
-                throw new RuntimeException("Cannot get the current working directory.");
-            }
-            $scipPhpVendorDir = self::join($cwd, 'vendor');
-            if (!is_dir($scipPhpVendorDir)) {
-                throw new RuntimeException("Invalid scip-php vendor directory: {$scipPhpVendorDir}.");
-            }
-        }
-        $this->scipPhpVendorDir = self::resolvePath($scipPhpVendorDir);
-
-        $bin = [];
-        if (is_array($json['bin'] ?? null)) {
-            $bin = $this->collectPaths($json['bin']);
-        }
-        $this->projectFiles = array_merge(
-            $bin,
-            $this->loadProjectFiles($autoload),
-            $this->loadProjectFiles($autoloadDev),
-        );
-
-        $vendorDir = 'vendor';
-        if (
-            is_array($json['config'] ?? null)
-            && is_string($json['config']['vendor-dir'] ?? null)
-        ) {
-            $dir = trim($json['config']['vendor-dir'], '/');
-            if ($dir !== '') {
-                $vendorDir = $dir;
-            }
-        }
-        $this->vendorDir = self::join($projectRoot, $vendorDir);
-
-        $projectAutoload = Reader::read(self::join($this->vendorDir, 'autoload.php'));
-        $scipPhpAutoload = Reader::read(self::join($this->scipPhpVendorDir, 'autoload.php'));
-        $autoloadDir = $projectAutoload === $scipPhpAutoload ? $this->scipPhpVendorDir : $this->vendorDir;
-        $loader = require self::join($autoloadDir, 'autoload.php');
-        if (!$loader instanceof ClassLoader) {
-            throw new RuntimeException("Cannot get autoload.php class loader.");
-        }
-        $this->loader = $loader;
-
-        $installed = require self::join($this->vendorDir, 'composer', 'installed.php');
-
-        if (!is_array($installed) || !is_array($installed['root'])) {
-            throw new RuntimeException("Cannot get root element from installed.php.");
-        }
-
-        $pkgName = $installed['root']['name'];
-        if (!is_string($pkgName) || $pkgName === '') {
-            throw new RuntimeException("Cannot get package name.");
-        }
-        $this->pkgName = $pkgName;
-
-        $pkgVersion = $installed['root']['reference'] ?? $installed['root']['version'];
-        if (!is_string($pkgVersion) || $pkgVersion === '') {
-            throw new RuntimeException("Cannot get package version.");
-        }
-        $this->pkgVersion = $pkgVersion;
-
-        $additionalClasses = [];
-        foreach ($this->projectFiles as $f) {
-            $classes = PhpFileParser::findClasses($f);
-            foreach ($classes as $c) {
-                if ($this->loader->findFile($c) === false) {
-                    $additionalClasses[$c] = $f;
-                }
-            }
-        }
-        $this->loader->addClassMap($additionalClasses);
-
-        $pkgsByPaths = [];
-        if (is_array($installed['versions'])) {
-            foreach ($installed['versions'] as $name => $info) {
-                if (!is_string($name) || $name === '') {
-                    continue;
-                }
-                // Replaced packages do not have an install path.
-                // See https://getcomposer.org/doc/04-schema.md#replace
-                if (!is_array($info) || !is_string($info['install_path'] ?? null) || $info['install_path'] === '') {
-                    continue;
-                }
-                $path = self::resolvePath($info['install_path']);
-                if ($name !== $this->pkgName && is_string($info['reference']) && $info['reference'] !== '') {
-                    $pkgsByPaths[$path] = ['name' => $name, 'version' => $info['reference']];
-                }
-            }
-        }
-
-        $composerPath = self::join($this->vendorDir, 'composer');
-        $pkgsByPaths[$composerPath] = ['name' => 'composer', 'version' => 'dev'];
-        $this->pkgsByPaths = $pkgsByPaths;
-
-
-        $lock = $this->parseJson('composer.lock');
-        if (is_array($lock['packages'] ?? null)) {
-            foreach ($lock['packages'] as $pkg) {
-                if (
-                    !is_array($pkg)
-                    || !is_array($pkg['autoload'] ?? null)
-                    || !is_array($pkg['autoload']['files'] ?? null)
-                    || !is_string($pkg['name'] ?? null)
-                    || $pkg['name'] === ''
-                ) {
-                    continue;
-                }
-                foreach ($pkg['autoload']['files'] as $f) {
-                    if (!is_string($f) || $f === '') {
-                        continue;
-                    }
-                    $f = self::join($this->vendorDir, $pkg['name'], $f);
-                    $classes = PhpFileParser::findClasses($f);
-                    foreach ($classes as $c) {
-                        if ($this->loader->findFile($c) === false) {
-                            $additionalClasses[$c] = $f;
-                        }
-                    }
-                }
-            }
-        }
-        $this->loader->addClassMap($additionalClasses);
-
-        $this->userConsts = get_defined_constants(categorize: true)['user'] ?? []; // @phpstan-ignore-line
-    }
-
-    /**
-     * @param  non-empty-string  $filename
-     * @return array<array-key, mixed>
-     */
+    /** @param  non-empty-string  $filename */
     private function parseJson(string $filename): array
     {
         $content = Reader::read(self::join($this->projectRoot, $filename));
@@ -250,89 +244,6 @@ final class Composer
             throw new RuntimeException("Cannot parse {$filename}.");
         }
         return $json;
-    }
-
-    /**
-     * @param  array<array-key, mixed>  $autoload
-     * @return array<int, non-empty-string>
-     */
-    private function loadProjectFiles(array $autoload): array
-    {
-        $generator = new ClassMapGenerator();
-        $exclusionRegex = null;
-        if (is_array($autoload['exclude-from-classmap'] ?? null) && count($autoload['exclude-from-classmap']) > 0) {
-            $exclusions = [];
-            foreach ($autoload['exclude-from-classmap'] as $e) {
-                if (is_string($e) && $e !== '') {
-                    $exclusions[] = $e;
-                }
-            }
-            $exclusionRegex = '{(' . implode('|', $exclusions) . ')}';
-        }
-        if (is_array($autoload['classmap'] ?? null)) {
-            foreach ($autoload['classmap'] as $path) {
-                if (!is_string($path) || $path === '') {
-                    continue;
-                }
-                $p = self::join($this->projectRoot, $path);
-                $generator->scanPaths($p, $exclusionRegex);
-            }
-        }
-        foreach (['psr-4', 'psr-0'] as $t) {
-            if (!is_array($autoload[$t] ?? null)) {
-                continue;
-            }
-            foreach ($autoload[$t] as $ns => $paths) {
-                if (!is_string($ns) || $ns === '' || (!is_array($paths) && !is_string($paths))) {
-                    continue;
-                }
-                $paths = is_string($paths) ? [$paths] : $paths;
-                foreach ($paths as $path) {
-                    if (!is_string($path) || $path === '') {
-                        continue;
-                    }
-                    $p = self::join($this->projectRoot, $path);
-                    $p = rtrim($p, DIRECTORY_SEPARATOR);
-                    $generator->scanPaths($p, $exclusionRegex, $t, $ns);
-                }
-            }
-        }
-
-        $map = $generator->getClassMap();
-        $map->sort();
-        $classFiles = array_unique(array_values($map->getMap()));
-
-        if (!is_array($autoload['files'] ?? null)) {
-            return $classFiles;
-        }
-        $files = $this->collectPaths($autoload['files']);
-        return array_merge($files, $classFiles);
-    }
-
-    /**
-     * @param  array<array-key, mixed>  $paths
-     * @return list<non-empty-string>
-     */
-    private function collectPaths(array $paths): array
-    {
-        $files = [];
-        foreach ($paths as $p) {
-            if (!is_string($p) || $p === '') {
-                continue;
-            }
-            $p = self::join($this->projectRoot, $p);
-            $p = str_starts_with($p, 'phar://') ? $p : realpath($p);
-            if ($p !== false) {
-                $files[] = $p;
-            }
-        }
-        return $files;
-    }
-
-    /** @return list<non-empty-string> */
-    public function projectFiles(): array
-    {
-        return $this->projectFiles;
     }
 
     /** @param  non-empty-string  $ident */
@@ -353,13 +264,12 @@ final class Composer
         return isset(PhpStormStubsMap::CLASSES[$c])
             || str_contains($c, 'anon-class-')
             || (str_starts_with($c, 'Composer\\Autoload\\') && class_exists($c))
+            || class_exists($c, false)
+            || interface_exists($c, false)
+            || trait_exists($c, false)
+            || enum_exists($c, false)
             || (
-                // The goal is to avoid calling {class,interface,trait,enum}_exists if it is not absolutely necessary.
-                // This is because if the file contains a fatal error, it will generate a fatal error. Since findFile
-                // also returns the path to the file of a namespaced function, check that the identifier is not a
-                // function. However, since it is possible that a class-like and a function have the same name, we
-                // must call {class,interface,trait,enum}_exists as a last resort.
-                $this->loader->findFile($c) !== false && (
+                $this->classMap->findFile($c) !== null && (
                     !function_exists($c)
                     || class_exists($c) || interface_exists($c) || trait_exists($c) || enum_exists($c)
                 )
@@ -394,15 +304,9 @@ final class Composer
             return $f;
         }
 
-        $f = $this->loader->findFile($ident);
-        if ($f !== false) {
-            if (str_starts_with($f, 'phar://')) {
-                return $f;
-            }
-            $f = realpath($f);
-            if ($f !== false) {
-                return $f;
-            }
+        $f = $this->classMap->findFile($ident);
+        if ($f !== null) {
+            return $f;
         }
 
         if (function_exists($ident)) {
@@ -412,16 +316,10 @@ final class Composer
                 if (!str_contains($f, $this->scipPhpVendorDir)) {
                     return $f;
                 }
-                // In case of a conflict between a function defined in a dependency of scip-php
-                // and a function defined in the analyzed project or its dependencies, the
-                // former is used here. Therefore, we patch the path, so that the latter is
-                // analyzed instead.
                 $vendorFile = str_replace($this->scipPhpVendorDir, $this->vendorDir, $f);
                 if (is_file($vendorFile)) {
                     return $vendorFile;
                 }
-                // If the file is not found in the vendor directory, we probably analyze
-                // a project which is also a dependency of scip-php.
                 $f = str_replace($this->scipPhpVendorDir . DIRECTORY_SEPARATOR, '', $f);
                 $f = preg_replace('/^\w+\/\w+\//', '', $f, limit: 1);
                 if ($f === null || $f === '') {
@@ -431,13 +329,30 @@ final class Composer
             }
         }
 
+        if (class_exists($ident, false) || interface_exists($ident, false) || trait_exists($ident, false) || enum_exists($ident, false)) {
+            $class = new ReflectionClass($ident);
+            $f = $class->getFileName();
+            if ($f !== false && $f !== '') {
+                if (!str_contains($f, $this->scipPhpVendorDir)) {
+                    return $f;
+                }
+                $vendorFile = str_replace($this->scipPhpVendorDir, $this->vendorDir, $f);
+                if (is_file($vendorFile)) {
+                    return $vendorFile;
+                }
+                $f = str_replace($this->scipPhpVendorDir . DIRECTORY_SEPARATOR, '', $f);
+                $f = preg_replace('/^\w+\/\w+\//', '', $f, limit: 1);
+                if ($f === null || $f === '') {
+                    throw new RuntimeException("Invalid path to class file: {$class->getFileName()}.");
+                }
+                return self::join($this->projectRoot, $f);
+            }
+        }
+
         if (str_starts_with($ident, 'Composer\\Autoload\\') && class_exists($ident)) {
             $class = new ReflectionClass($ident);
             $f = $class->getFileName();
             if ($f !== false && $f !== '') {
-                // In case the analyzed project uses composer classes, patch
-                // the path, so that the composer file of the project is analyzed.
-                // There is no support for the global composer init classes.
                 return str_replace($this->scipPhpVendorDir, $this->vendorDir, $f);
             }
         }
@@ -526,7 +441,6 @@ final class Composer
         $qualifiedConst = str_replace('\\', '\\\\', $c);
         $qualifiedConst = preg_quote($qualifiedConst);
 
-        // TODO(drj): replace with an AST visitor.
         $defineConstPattern = "/^\s*define\s*\(\s*['\"]{$qualifiedConst}['\"]\s*,/m";
         $assignConstPattern = "/^\s*const\s+{$const}\s*=/m";
         $nsPattern = "/^\s*namespace\s+{$ns};/m";

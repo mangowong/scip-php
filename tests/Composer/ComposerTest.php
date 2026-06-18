@@ -7,10 +7,12 @@ namespace Tests\Composer;
 use Override;
 use PHPUnit\Framework\TestCase;
 use ScipPhp\Composer\Composer;
+use ScipPhp\Composer\ProjectFiles;
 
 use function count;
 use function explode;
 use function implode;
+use function is_array;
 use function str_starts_with;
 
 use const DIRECTORY_SEPARATOR;
@@ -60,17 +62,36 @@ final class ComposerTest extends TestCase
 
     private Composer $composer;
 
+    /** @var list<non-empty-string> */
+    private array $projectFiles;
+
     #[Override]
     protected function setUp(): void
     {
         parent::setUp();
 
-        $this->composer = new Composer(__DIR__ . DIRECTORY_SEPARATOR . 'testdata');
+        $testDataDir = __DIR__ . DIRECTORY_SEPARATOR . 'testdata';
+        $json = $this->parseComposerJson($testDataDir);
+        $autoload = is_array($json['autoload'] ?? null) ? $json['autoload'] : [];
+        $autoloadDev = is_array($json['autoload-dev'] ?? null) ? $json['autoload-dev'] : [];
+        $bin = is_array($json['bin'] ?? null) ? $json['bin'] : [];
+
+        $projectFiles = new ProjectFiles($testDataDir, $autoload, $autoloadDev, $bin);
+        $this->projectFiles = $projectFiles->projectFiles();
+        $this->composer = new Composer($testDataDir, $this->projectFiles);
+    }
+
+    /** @return array<array-key, mixed> */
+    private function parseComposerJson(string $dir): array
+    {
+        $content = \file_get_contents($dir . '/composer.json');
+        $json = \json_decode($content ?: '', associative: true, flags: \JSON_THROW_ON_ERROR);
+        return is_array($json) ? $json : [];
     }
 
     public function testProjectFiles(): void
     {
-        $files = $this->composer->projectFiles();
+        $files = $this->projectFiles;
 
         self::assertCount(5, $files);
 

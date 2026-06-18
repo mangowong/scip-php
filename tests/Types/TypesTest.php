@@ -24,10 +24,12 @@ use PhpParser\Parser;
 use PhpParser\ParserFactory;
 use PHPUnit\Framework\TestCase;
 use ScipPhp\Composer\Composer;
+use ScipPhp\Composer\ProjectFiles;
 use ScipPhp\File\Reader;
 use ScipPhp\SymbolNamer;
 use ScipPhp\Types\Types;
 
+use function is_array;
 use function str_ends_with;
 
 use const DIRECTORY_SEPARATOR;
@@ -53,11 +55,27 @@ final class TypesTest extends TestCase
         $this->parser = (new ParserFactory())->createForNewestSupportedVersion();
         $this->stmts = [];
 
-        $composer = new Composer(self::TESTDATA_DIR);
+        $json = $this->parseComposerJson(self::TESTDATA_DIR);
+        $autoload = is_array($json['autoload'] ?? null) ? $json['autoload'] : [];
+        $autoloadDev = is_array($json['autoload-dev'] ?? null) ? $json['autoload-dev'] : [];
+        $bin = is_array($json['bin'] ?? null) ? $json['bin'] : [];
+
+        $projectFiles = new ProjectFiles(self::TESTDATA_DIR, $autoload, $autoloadDev, $bin);
+        $files = $projectFiles->projectFiles();
+
+        $composer = new Composer(self::TESTDATA_DIR, $files);
         $namer = new SymbolNamer($composer);
 
         $this->types = new Types($composer, $namer);
-        $this->types->collect(...$composer->projectFiles());
+        $this->types->collect(...$files);
+    }
+
+    /** @return array<array-key, mixed> */
+    private function parseComposerJson(string $dir): array
+    {
+        $content = \file_get_contents($dir . '/composer.json');
+        $json = \json_decode($content ?: '', associative: true, flags: \JSON_THROW_ON_ERROR);
+        return is_array($json) ? $json : [];
     }
 
     public function testNameDefs(): void

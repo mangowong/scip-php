@@ -332,6 +332,10 @@ final class Types
             }
             $this->parser->traverse($f, $this, $this->collectDefs(...));
             $this->seenDepFiles[$f] = true;
+            $depCount = count($this->seenDepFiles);
+            if (function_exists('posix_isatty') && posix_isatty(STDOUT)) {
+                echo "Scanning dependencies: {$depCount} files\r";
+            }
             $type = $this->type($x);
             if ($type !== null) {
                 return $this->findDef($x, $type->flatten(), $name);
@@ -343,8 +347,17 @@ final class Types
     /** @param  non-empty-string  $filenames */
     public function collect(string ...$filenames): void
     {
-        foreach ($filenames as $f) {
+        $total = count($filenames);
+        $isTty = function_exists('posix_isatty') && posix_isatty(STDOUT);
+        foreach ($filenames as $i => $f) {
+            $n = $i + 1;
+            if ($isTty) {
+                echo "Collecting types: {$n}/{$total}\r";
+            }
             $this->parser->traverse($f, $this, $this->collectDefs(...));
+        }
+        if ($isTty) {
+            echo "Collecting types: {$total}/{$total} - done        \n";
         }
     }
 

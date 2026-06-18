@@ -51,6 +51,8 @@ $outputPath = isset($options['output']) && \is_string($options['output'])
 $version = '0.0.1';
 $args = \array_splice($argv, 1);
 
+$startTime = microtime(true);
+
 $indexer = new Indexer($projectRoot, $version, $args);
 $index = $indexer->index();
 
@@ -58,3 +60,8 @@ $index = $indexer->index();
     $outputPath,
     $index->serializeToString(),
 );
+
+$duration = round(microtime(true) - $startTime, 2);
+$fileCount = count($index->getDocuments());
+$extCount = count($index->getExternalSymbols());
+echo "Done: {$fileCount} documents, {$extCount} external symbols, {$duration}s\n";
