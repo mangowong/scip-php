@@ -7,7 +7,7 @@ include $_composer_autoload_path ?? __DIR__ . '/../vendor/autoload.php';
 
 use ScipPhp\Indexer;
 
-$options = \getopt('h', ['help', 'memory-limit:']);
+$options = \getopt('h', ['help', 'memory-limit:', 'project-root:', 'output:']);
 if ($options === false) {
     echo "Cannot parse options.\n";
     exit(1);
@@ -17,8 +17,10 @@ if (isset($options['h']) || isset($options['help'])) {
     echo "usage: {$argv[0]} [options]\n\n";
     echo "scip-php is a SCIP indexer for PHP\n\n";
     echo "Options:\n";
-    echo "  -h --help               display this help and exit\n";
-    echo "     --memory-limit=\"1G\"  memory limit\n";
+    echo "  -h --help                          display this help and exit\n";
+    echo "     --memory-limit=\"1G\"             memory limit\n";
+    echo "     --project-root=\"./path\"         project root directory (default: cwd)\n";
+    echo "     --output=\"./index.scip\"         output file path (default: <project-root>/index.scip)\n";
     exit(0);
 }
 
@@ -33,7 +35,19 @@ if (\ini_set('memory_limit', $memoryLimit) === false) {
     exit(1);
 }
 
-$projectRoot = \getcwd();
+$projectRoot = isset($options['project-root']) && \is_string($options['project-root'])
+    ? \realpath($options['project-root'])
+    : \getcwd();
+
+if ($projectRoot === false || !\is_dir($projectRoot)) {
+    echo "Invalid project root directory.\n";
+    exit(1);
+}
+
+$outputPath = isset($options['output']) && \is_string($options['output'])
+    ? $options['output']
+    : $projectRoot . '/index.scip';
+
 $version = '0.0.1';
 $args = \array_splice($argv, 1);
 
@@ -41,6 +55,6 @@ $indexer = new Indexer($projectRoot, $version, $args);
 $index = $indexer->index();
 
 \file_put_contents(
-    'index.scip',
+    $outputPath,
     $index->serializeToString(),
 );
