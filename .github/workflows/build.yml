@@ -11,7 +11,39 @@ on:
       - 'v*'
 
 jobs:
+  prepare-phar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ inputs.php_version || '8.3' }}
+          tools: composer:v2
+
+      - name: Install Composer dependencies
+        run: composer install --no-dev --optimize-autoloader
+
+      - name: Install Box
+        run: |
+          curl -LSs https://github.com/box-project/box/releases/latest/download/box.phar -o box.phar
+          chmod +x box.phar
+
+      - name: Build PHAR
+        run: php box.phar compile
+
+      - name: Verify PHAR
+        run: php scip-php.phar --help
+
+      - name: Upload PHAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: scip-php-phar
+          path: scip-php.phar
+
   build:
+    needs: prepare-phar
     strategy:
       fail-fast: false
       matrix:
@@ -37,10 +69,11 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ inputs.php_version || '8.3' }}
-          tools: composer:v2
 
-      - name: Install Composer dependencies
-        run: composer install --no-dev --optimize-autoloader
+      - name: Download PHAR
+        uses: actions/download-artifact@v4
+        with:
+          name: scip-php-phar
 
       - name: Download SPC
         shell: bash
@@ -48,18 +81,6 @@ jobs:
           curl -fsSL -o ${{ matrix.spc_bin }} https://dl.static-php.dev/static-php-cli/spc-bin/nightly/${{ matrix.spc_bin }}
           if [ "${{ runner.os }}" != "Windows" ]; then chmod +x ${{ matrix.spc_bin }}; fi
           ./${{ matrix.spc_bin }} --version
-
-      - name: Install Box
-        shell: bash
-        run: |
-          curl -LSs https://github.com/box-project/box/releases/latest/download/box.phar -o box.phar
-
-      - name: Build PHAR
-        run: php box.phar compile --no-parallel
-
-      - name: Verify PHAR
-        shell: bash
-        run: php scip-php.phar --help
 
       - name: Build static PHP with micro SAPI
         shell: bash
