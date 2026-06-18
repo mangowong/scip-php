@@ -7,7 +7,9 @@ namespace ScipPhp;
 use PhpParser\Comment\Doc;
 use PhpParser\Node;
 use PhpParser\Node\Const_;
+use PhpParser\Node\Expr\ArrowFunction;
 use PhpParser\Node\Expr\ClassConstFetch;
+use PhpParser\Node\Expr\Closure;
 use PhpParser\Node\Expr\MethodCall;
 use PhpParser\Node\Expr\NullsafeMethodCall;
 use PhpParser\Node\Expr\NullsafePropertyFetch;
@@ -15,6 +17,7 @@ use PhpParser\Node\Expr\PropertyFetch;
 use PhpParser\Node\Expr\StaticCall;
 use PhpParser\Node\Expr\StaticPropertyFetch;
 use PhpParser\Node\Expr\Variable;
+use PhpParser\Node\FunctionLike;
 use PhpParser\Node\Identifier;
 use PhpParser\Node\Name;
 use PhpParser\Node\Param;
@@ -27,6 +30,7 @@ use PhpParser\Node\Stmt\Function_;
 use PhpParser\Node\Stmt\Namespace_;
 use PhpParser\Node\Stmt\Property;
 use PhpParser\Node\UseItem;
+use PhpParser\PrettyPrinter\Standard;
 use PHPStan\PhpDocParser\Ast\Attribute;
 use PHPStan\PhpDocParser\Ast\PhpDoc\PhpDocTagValueNode;
 use Scip\Document;
@@ -34,6 +38,7 @@ use Scip\Language;
 use Scip\Occurrence;
 use Scip\Relationship;
 use Scip\SymbolInformation;
+use Scip\SymbolInformation\Kind;
 use Scip\SymbolRole;
 use Scip\SyntaxKind;
 use ScipPhp\Composer\Composer;
@@ -47,6 +52,7 @@ use function implode;
 use function is_int;
 use function is_string;
 use function ltrim;
+use function str_contains;
 use function str_starts_with;
 
 final class DocIndexer
@@ -123,6 +129,14 @@ final class DocIndexer
         }
         if ($n instanceof Function_) {
             $this->def($pos, $n, $n->name, SyntaxKind::IdentifierFunctionDefinition);
+            return;
+        }
+        if ($n instanceof Closure) {
+            $this->anonFuncDef($pos, $n);
+            return;
+        }
+        if ($n instanceof ArrowFunction) {
+            $this->anonFuncDef($pos, $n);
             return;
         }
         if ($n instanceof Param && $n->var instanceof Variable && is_string($n->var->name)) {
@@ -215,6 +229,13 @@ final class DocIndexer
                 'is_implementation' => $r['is_implementation'],
             ]);
         }
+        $typeDefSymbol = $this->typeDefinitionSymbol($n);
+        if ($typeDefSymbol !== null) {
+            $relationships[] = new Relationship([
+                'symbol'            => $typeDefSymbol,
+                'is_type_definition' => true,
+            ]);
+        }
         $signDoc = new Document([
             'language' => Language::PHP,
             'text'     => $result['sign'],
@@ -230,12 +251,17 @@ final class DocIndexer
             $info['display_name'] = $displayName;
         }
         $this->symbols[$symbol] = new SymbolInformation($info);
-        $this->occurrences[] = new Occurrence([
+        $enclosingRange = $this->enclosingRange($pos, $n);
+        $occData = [
             'range'        => $pos->pos($posNode),
             'symbol'       => $symbol,
             'symbol_roles' => SymbolRole::Definition,
             'syntax_kind'  => $kind,
-        ]);
+        ];
+        if ($enclosingRange !== null) {
+            $occData['enclosing_range'] = $enclosingRange;
+        }
+        $this->occurrences[] = new Occurrence($occData);
     }
 
     /**
@@ -297,11 +323,112 @@ final class DocIndexer
             }
         }
 
-        $this->occurrences[] = new Occurrence([
+        $enclosingRange = $this->enclosingRange($pos, $posNode);
+        $occData = [
             'range'        => $pos->pos($posNode),
             'symbol'       => $symbol,
             'symbol_roles' => $role,
             'syntax_kind'  => $kind,
+        ];
+        if ($enclosingRange !== null) {
+            $occData['enclosing_range'] = $enclosingRange;
+        }
+        $this->occurrences[] = new Occurrence($occData);
+    }
+
+    private function anonFuncDef(PosResolver $pos, ArrowFunction|Closure $n): void
+    {
+        $symbol = $this->namer->name($n);
+        if ($symbol === null) {
+            return;
+        }
+        $sign = $n instanceof Closure
+            ? $this->anonFuncSign($n)
+            : 'fn(...) => ...';
+        $doc = $n->getDocComment();
+        $documentation = [];
+        if ($doc !== null) {
+            $text = $doc->getText();
+            if ($text !== '') {
+                $documentation[] = $text;
+            }
+        }
+        $signDoc = new Document([
+            'language' => Language::PHP,
+            'text'     => $sign,
         ]);
+        $this->symbols[$symbol] = new SymbolInformation([
+            'symbol'                  => $symbol,
+            'documentation'           => $documentation,
+            'kind'                    => Kind::PBFunction,
+            'signature_documentation' => $signDoc,
+        ]);
+        $enclosingRange = $this->enclosingRange($pos, $n);
+        $occData = [
+            'range'        => $pos->pos($n),
+            'symbol'       => $symbol,
+            'symbol_roles' => SymbolRole::Definition,
+            'syntax_kind'  => SyntaxKind::IdentifierFunctionDefinition,
+        ];
+        if ($enclosingRange !== null) {
+            $occData['enclosing_range'] = $enclosingRange;
+        }
+        $this->occurrences[] = new Occurrence($occData);
+    }
+
+    private function anonFuncSign(Closure $n): string
+    {
+        $sign = 'function(';
+        $printer = new Standard();
+        foreach ($n->params as $i => $param) {
+            if ($i > 0) {
+                $sign .= ', ';
+            }
+            $sign .= $printer->prettyPrint([$param]);
+        }
+        $sign = $n->returnType !== null
+            ? "{$sign}): " . $printer->prettyPrint([$n->returnType])
+            : "{$sign})";
+        if ($n->uses !== []) {
+            $sign .= ' use (...)';
+        }
+        return $sign;
+    }
+
+    /** @return ?array{int, int, int, int} */
+    private function enclosingRange(PosResolver $pos, Node $n): ?array
+    {
+        $current = $n->getAttribute('parent');
+        while ($current instanceof Node) {
+            if ($current instanceof ClassLike || $current instanceof FunctionLike) {
+                return $pos->pos($current);
+            }
+            $current = $current->getAttribute('parent');
+        }
+        return null;
+    }
+
+    /** @return ?non-empty-string */
+    private function typeDefinitionSymbol(
+        Const_|ClassLike|ClassMethod|EnumCase|Function_|Param|PropertyItem $n,
+    ): ?string {
+        $typeNode = null;
+        if ($n instanceof PropertyItem) {
+            $prop = $n->getAttribute('parent');
+            if ($prop instanceof Property) {
+                $typeNode = $prop->type;
+            }
+        } elseif ($n instanceof Param) {
+            $typeNode = $n->type;
+        } elseif ($n instanceof ClassMethod || $n instanceof Function_) {
+            $typeNode = $n->returnType;
+        }
+        if ($typeNode instanceof Name) {
+            $symbol = $this->types->nameDef($typeNode);
+            if ($symbol !== null && str_contains($symbol, '#')) {
+                return $symbol;
+            }
+        }
+        return null;
     }
 }

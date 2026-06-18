@@ -31,6 +31,7 @@ use PhpParser\Node\Scalar\String_;
 use PhpParser\Node\Stmt\Class_;
 use PhpParser\Node\Stmt\ClassConst;
 use PhpParser\Node\Stmt\ClassLike;
+use PhpParser\Node\Stmt\ClassMethod;
 use PhpParser\Node\Stmt\EnumCase;
 use PhpParser\Node\Stmt\Interface_;
 use PhpParser\Node\Stmt\Property;
@@ -47,8 +48,10 @@ use ScipPhp\Types\Internal\TypeParser;
 
 use function array_key_exists;
 use function in_array;
+use function is_array;
 use function is_string;
 use function ltrim;
+use function property_exists;
 use function strtolower;
 
 final class Types
@@ -71,6 +74,9 @@ final class Types
     /** @var array<non-empty-string, list<array{symbol: non-empty-string, is_reference: bool, is_implementation: bool}>> */
     private array $relationships;
 
+    /** @var array<int, true> */
+    private array $resolvingVars;
+
     public function __construct(
         private readonly Composer $composer,
         private readonly SymbolNamer $namer,
@@ -82,6 +88,7 @@ final class Types
         $this->defs = [];
         $this->seenDepFiles = [];
         $this->relationships = [];
+        $this->resolvingVars = [];
     }
 
     /**
@@ -267,6 +274,12 @@ final class Types
                 }
                 return new NamedType($name);
             }
+            if (is_string($x->name)) {
+                $typeFromScope = $this->resolveVarType($x);
+                if ($typeFromScope !== null) {
+                    return $typeFromScope;
+                }
+            }
         }
 
         return null;
@@ -421,6 +434,8 @@ final class Types
             }
         }
 
+        $this->collectMethodRels($name, $c);
+
         $props = $this->docCommentParser->parseProperties($c);
         foreach ($props as $p) {
             $propName = ltrim($p->propertyName, '$');
@@ -457,6 +472,35 @@ final class Types
         $this->defs[$name] = new NamedType($name);
     }
 
+    /** @param  non-empty-string  $classSymbol */
+    private function collectMethodRels(string $classSymbol, ClassLike $c): void
+    {
+        foreach ($c->getMethods() as $method) {
+            if (!($method instanceof ClassMethod)) {
+                continue;
+            }
+            $methName = $method->name->toString();
+            if ($methName === '') {
+                continue;
+            }
+            $methSymbol = $this->namer->nameMeth($classSymbol, $methName);
+            $uppers = $this->uppers[$classSymbol] ?? [];
+            foreach ($uppers as $upperSymbol) {
+                $parentMethSymbol = $this->namer->nameMeth($upperSymbol, $methName);
+                if (array_key_exists($parentMethSymbol, $this->defs)) {
+                    if (!isset($this->relationships[$methSymbol])) {
+                        $this->relationships[$methSymbol] = [];
+                    }
+                    $this->relationships[$methSymbol][] = [
+                        'symbol'            => $parentMethSymbol,
+                        'is_reference'      => true,
+                        'is_implementation' => true,
+                    ];
+                }
+            }
+        }
+    }
+
     /** @param  non-empty-string  $c */
     private function addRelationship(string $c, Name $upper, bool $isReference, bool $isImplementation): void
     {
@@ -472,5 +516,166 @@ final class Types
             'is_reference'      => $isReference,
             'is_implementation' => $isImplementation,
         ];
+    }
+
+    private function resolveVarType(Variable $var): ?Type
+    {
+        $varName = $var->name;
+        if (!is_string($varName)) {
+            return null;
+        }
+        $varId = spl_object_id($var);
+        if (isset($this->resolvingVars[$varId])) {
+            return null;
+        }
+        $this->resolvingVars[$varId] = true;
+        try {
+            return $this->doResolveVarType($var, $varName);
+        } finally {
+            unset($this->resolvingVars[$varId]);
+        }
+    }
+
+    private function doResolveVarType(Variable $var, string $varName): ?Type
+    {
+        $current = $var->getAttribute('parent');
+        if (!($current instanceof Node)) {
+            return null;
+        }
+
+        // Walk up to find the enclosing function/method/closure
+        $funcLike = $current;
+        while (!($funcLike instanceof FunctionLike)) {
+            $next = $funcLike->getAttribute('parent');
+            if (!($next instanceof Node)) {
+                return null;
+            }
+            $funcLike = $next;
+        }
+
+        // Check function parameters for type hints
+        if (property_exists($funcLike, 'params') && is_array($funcLike->params)) {
+            foreach ($funcLike->params as $param) {
+                if (!($param instanceof Param)) {
+                    continue;
+                }
+                if ($param->var instanceof Variable && is_string($param->var->name) && $param->var->name === $varName) {
+                    if ($param->type instanceof Name) {
+                        $name = $this->namer->name($param->type);
+                        if ($name !== null) {
+                            return new NamedType($name);
+                        }
+                    }
+                    if ($param->type instanceof Identifier) {
+                        $t = $this->resolveIdentifierType($param->type->toString(), $var);
+                        if ($t !== null) {
+                            return $t;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Walk siblings looking for assignments to this variable
+        return $this->findVarAssignment($var, $funcLike);
+    }
+
+    private function findVarAssignment(Variable $target, Node $scope): ?Type
+    {
+        if (!property_exists($scope, 'stmts')) {
+            return null;
+        }
+        /** @var mixed $stmtsRaw */
+        $stmtsRaw = $scope->stmts;
+        if (!is_array($stmtsRaw)) {
+            return null;
+        }
+        $varName = is_string($target->name) ? $target->name : null;
+        if ($varName === null) {
+            return null;
+        }
+        return $this->scanStmtsForAssign($varName, $stmtsRaw);
+    }
+
+    /** @param  array<mixed, mixed>  $stmts */
+    private function scanStmtsForAssign(string $varName, array $stmts): ?Type
+    {
+        foreach ($stmts as $stmt) {
+            if (!($stmt instanceof Node)) {
+                continue;
+            }
+            if ($stmt instanceof Assign) {
+                if ($stmt->var instanceof Variable && is_string($stmt->var->name) && $stmt->var->name === $varName) {
+                    return $this->type($stmt->expr);
+                }
+            }
+            // Recurse into sub-nodes
+            foreach ($stmt->getSubNodeNames() as $subName) {
+                if (!property_exists($stmt, $subName)) {
+                    continue;
+                }
+                $sub = $stmt->{$subName}; // @phpstan-ignore property.dynamicName
+                if ($sub instanceof Node && !($sub instanceof FunctionLike)) {
+                    $result = $this->scanNodeForAssign($varName, $sub);
+                    if ($result !== null) {
+                        return $result;
+                    }
+                } elseif (is_array($sub)) {
+                    $result = $this->scanStmtsForAssign($varName, $sub);
+                    if ($result !== null) {
+                        return $result;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    private function scanNodeForAssign(string $varName, Node $node): ?Type
+    {
+        if ($node instanceof Assign) {
+            if ($node->var instanceof Variable && is_string($node->var->name) && $node->var->name === $varName) {
+                return $this->type($node->expr);
+            }
+        }
+        foreach ($node->getSubNodeNames() as $subName) {
+            if (!property_exists($node, $subName)) {
+                continue;
+            }
+            $sub = $node->{$subName}; // @phpstan-ignore property.dynamicName
+            if ($sub instanceof Node && !($sub instanceof FunctionLike)) {
+                $result = $this->scanNodeForAssign($varName, $sub);
+                if ($result !== null) {
+                    return $result;
+                }
+            } elseif (is_array($sub)) {
+                $result = $this->scanStmtsForAssign($varName, $sub);
+                if ($result !== null) {
+                    return $result;
+                }
+            }
+        }
+        return null;
+    }
+
+    private function resolveIdentifierType(string $name, Variable $var): ?Type
+    {
+        $scalars = [
+            'int', 'float', 'string', 'bool', 'true', 'false', 'null',
+            'void', 'mixed', 'never', 'callable', 'iterable', 'object', 'array',
+        ];
+        $lower = strtolower($name);
+        foreach ($scalars as $s) {
+            if ($lower === $s) {
+                return null;
+            }
+        }
+        if ($lower === 'self' || $lower === 'static') {
+            $symbolName = $this->namer->nameNearestClassLike($var);
+            if ($symbolName !== null) {
+                return new NamedType($symbolName);
+            }
+        }
+        return null;
     }
 }

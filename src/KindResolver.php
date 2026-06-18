@@ -49,6 +49,12 @@ final readonly class KindResolver
             if ($n->name->toString() === '__construct') {
                 return Kind::Constructor;
             }
+            if ($n->isAbstract() || self::isInInterface($n)) {
+                return Kind::AbstractMethod;
+            }
+            if (self::isInTrait($n)) {
+                return Kind::TraitMethod;
+            }
             if ($n->isStatic()) {
                 return Kind::StaticMethod;
             }
@@ -88,5 +94,17 @@ final readonly class KindResolver
         }
         $name = $n->var->name;
         return $name !== '' ? "\${$name}" : null;
+    }
+
+    private static function isInInterface(ClassMethod $n): bool
+    {
+        $parent = $n->getAttribute('parent');
+        return $parent instanceof Interface_;
+    }
+
+    private static function isInTrait(ClassMethod $n): bool
+    {
+        $parent = $n->getAttribute('parent');
+        return $parent instanceof Trait_;
     }
 }
