@@ -34,6 +34,15 @@ jobs:
         run: composer validate --strict --check-lock --with-dependencies
       - name: Install dependencies
         run: composer install --no-interaction --no-progress
+      - name: Regenerate golden files
+        run: REGENERATE=1 vendor/bin/phpunit --filter=testIndexer --no-coverage
+      - name: Check golden files up to date
+        run: |
+          if ! git diff --quiet tests/Indexer/testdata/golden/; then
+            echo "::error::Golden files are out of date. Run 'REGENERATE=1 vendor/bin/phpunit --filter=testIndexer' and commit the changes."
+            git diff tests/Indexer/testdata/golden/
+            exit 1
+          fi
       - name: Test
         run: vendor/bin/phpunit --coverage-text --coverage-cobertura=coverage.xml --colors=never
         env:

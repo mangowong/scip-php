@@ -85,13 +85,25 @@ final class IndexerTest extends TestCase
         $goldenFiles = self::files(self::TESTDATA_DIR . 'golden');
         $actualFiles = self::files($actualPath);
 
+        if (getenv('REGENERATE') !== false) {
+            foreach ($actualFiles as $name => $actualFilePath) {
+                if (!isset($goldenFiles[$name])) {
+                    continue;
+                }
+                $goldenPath = $goldenFiles[$name];
+                file_put_contents($goldenPath, Reader::read($actualFilePath));
+            }
+            self::markTestSkipped('Golden files regenerated');
+            return;
+        }
+
         self::assertEqualsCanonicalizing(array_keys($goldenFiles), array_keys($actualFiles));
 
         foreach ($goldenFiles as $name => $goldenPath) {
-            $actualPath = $actualFiles[$name];
+            $actualFilePath = $actualFiles[$name];
 
             $golden = Reader::read($goldenPath);
-            $actual = Reader::read($actualPath);
+            $actual = Reader::read($actualFilePath);
 
             self::assertSame($golden, $actual);
         }
