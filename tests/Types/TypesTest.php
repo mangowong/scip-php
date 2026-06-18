@@ -29,10 +29,13 @@ use ScipPhp\File\Reader;
 use ScipPhp\SymbolNamer;
 use ScipPhp\Types\Types;
 
+use function file_get_contents;
 use function is_array;
+use function json_decode;
 use function str_ends_with;
 
 use const DIRECTORY_SEPARATOR;
+use const JSON_THROW_ON_ERROR;
 
 final class TypesTest extends TestCase
 {
@@ -73,8 +76,8 @@ final class TypesTest extends TestCase
     /** @return array<array-key, mixed> */
     private function parseComposerJson(string $dir): array
     {
-        $content = \file_get_contents($dir . '/composer.json');
-        $json = \json_decode($content ?: '', associative: true, flags: \JSON_THROW_ON_ERROR);
+        $content = file_get_contents($dir . '/composer.json');
+        $json = json_decode($content !== false ? $content : '', associative: true, flags: JSON_THROW_ON_ERROR);
         return is_array($json) ? $json : [];
     }
 

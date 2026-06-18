@@ -63,9 +63,13 @@ final class IndexerTest extends TestCase
     #[RunInSeparateProcess]
     public function testIndexer(): void
     {
-        self::markTestSkipped('Requires scip CLI tool which is not available in CI');
+        $scipPath = exec('which scip 2>/dev/null');
+        if ($scipPath === false || $scipPath === '') {
+            self::markTestSkipped('Requires scip CLI tool which is not available');
+        }
 
         $indexer = new Indexer(self::TESTDATA_DIR . 'scip-php-test', 'test', []);
+
         $index = $indexer->index();
 
         file_put_contents($this->indexFile, $index->serializeToString());

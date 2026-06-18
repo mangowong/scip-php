@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace ScipPhp;
 
+use RuntimeException;
 use Scip\Document;
 use Scip\Index;
 use Scip\Language;
@@ -17,14 +18,16 @@ use ScipPhp\File\Reader;
 use ScipPhp\Parser\Parser;
 use ScipPhp\Types\Types;
 
-use RuntimeException;
-
 use function array_values;
+use function count;
+use function function_exists;
 use function is_array;
 use function json_decode;
+use function posix_isatty;
 use function str_replace;
 
 use const JSON_THROW_ON_ERROR;
+use const STDOUT;
 
 final readonly class Indexer
 {

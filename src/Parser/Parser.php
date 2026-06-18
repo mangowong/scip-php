@@ -15,6 +15,11 @@ use PhpParser\NodeVisitorAbstract;
 use PhpParser\Parser as PhpParser;
 use PhpParser\ParserFactory;
 use ScipPhp\File\Reader;
+use Throwable;
+
+use function fwrite;
+
+use const STDERR;
 
 final readonly class Parser
 {
@@ -48,7 +53,7 @@ final readonly class Parser
         } catch (ParseError $e) {
             fwrite(STDERR, "Warning: parse error in {$filename}: {$e->getMessage()}\n");
             return;
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             fwrite(STDERR, "Warning: failed to parse {$filename}: {$e->getMessage()}\n");
             return;
         }

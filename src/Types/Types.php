@@ -47,12 +47,18 @@ use ScipPhp\Types\Internal\Type;
 use ScipPhp\Types\Internal\TypeParser;
 
 use function array_key_exists;
+use function count;
+use function function_exists;
 use function in_array;
 use function is_array;
 use function is_string;
 use function ltrim;
+use function posix_isatty;
 use function property_exists;
+use function spl_object_id;
 use function strtolower;
+
+use const STDOUT;
 
 final class Types
 {
@@ -349,10 +355,11 @@ final class Types
     {
         $total = count($filenames);
         $isTty = function_exists('posix_isatty') && posix_isatty(STDOUT);
-        foreach ($filenames as $i => $f) {
-            $n = $i + 1;
+        $idx = 0;
+        foreach ($filenames as $f) {
+            $idx++;
             if ($isTty) {
-                echo "Collecting types: {$n}/{$total}\r";
+                echo "Collecting types: {$idx}/{$total}\r";
             }
             $this->parser->traverse($f, $this, $this->collectDefs(...));
         }
@@ -572,7 +579,11 @@ final class Types
                 if (!($param instanceof Param)) {
                     continue;
                 }
-                if ($param->var instanceof Variable && is_string($param->var->name) && $param->var->name === $varName) {
+                if (
+                    $param->var instanceof Variable
+                    && is_string($param->var->name)
+                    && $param->var->name === $varName
+                ) {
                     if ($param->type instanceof Name) {
                         $name = $this->namer->name($param->type);
                         if ($name !== null) {

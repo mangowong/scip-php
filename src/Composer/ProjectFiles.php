@@ -5,17 +5,17 @@ declare(strict_types=1);
 namespace ScipPhp\Composer;
 
 use Composer\ClassMapGenerator\ClassMapGenerator;
-use Composer\ClassMapGenerator\PhpFileParser;
 
 use function array_merge;
 use function array_unique;
 use function array_values;
 use function count;
+use function implode;
 use function is_array;
 use function is_string;
+use function realpath;
 use function rtrim;
 use function str_starts_with;
-use function trim;
 
 use const DIRECTORY_SEPARATOR;
 

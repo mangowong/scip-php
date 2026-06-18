@@ -12,8 +12,9 @@ use RuntimeException;
 use ScipPhp\File\Reader;
 
 use function array_keys;
-use function array_key_exists;
+use function array_slice;
 use function class_exists;
+use function count;
 use function enum_exists;
 use function explode;
 use function function_exists;
@@ -143,7 +144,8 @@ final class Composer
                 if ($name !== $this->pkgName && is_string($info['reference']) && $info['reference'] !== '') {
                     $pkgsByPaths[$path] = ['name' => $name, 'version' => $info['reference']];
                     // Also add the vendor directory path for files found via ClassMap
-                    $vendorPath = self::join($this->vendorDir, ...explode('/', $name));
+                    $parts = explode('/', $name);
+                    $vendorPath = self::join($this->vendorDir, ...$parts);
                     if (is_dir($vendorPath) && !isset($pkgsByPaths[$vendorPath])) {
                         $pkgsByPaths[$vendorPath] = ['name' => $name, 'version' => $info['reference']];
                     }
@@ -208,7 +210,6 @@ final class Composer
 
     /**
      * @param  non-empty-string  $elem
-     * @param  non-empty-string  $elems
      * @return non-empty-string
      */
     private static function join(string $elem, string ...$elems): string
@@ -235,7 +236,10 @@ final class Composer
         return $resolved;
     }
 
-    /** @param  non-empty-string  $filename */
+    /**
+     * @param non-empty-string $filename
+     * @return array<array-key, mixed>
+     */
     private function parseJson(string $filename): array
     {
         $content = Reader::read(self::join($this->projectRoot, $filename));
@@ -305,7 +309,7 @@ final class Composer
         }
 
         $f = $this->classMap->findFile($ident);
-        if ($f !== null) {
+        if ($f !== null && $f !== '') {
             return $f;
         }
 
@@ -329,7 +333,12 @@ final class Composer
             }
         }
 
-        if (class_exists($ident, false) || interface_exists($ident, false) || trait_exists($ident, false) || enum_exists($ident, false)) {
+        if (
+            class_exists($ident, false)
+            || interface_exists($ident, false)
+            || trait_exists($ident, false)
+            || enum_exists($ident, false)
+        ) {
             $class = new ReflectionClass($ident);
             $f = $class->getFileName();
             if ($f !== false && $f !== '') {

@@ -48,7 +48,7 @@ final class ReaderTest extends TestCase
         try {
             Reader::read($filename);
         } finally {
-            chmod($filename, 0422); // Change back to avoid having a pending change in git.
+            chmod($filename, 0422);
         }
     }
 }

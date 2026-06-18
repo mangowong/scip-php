@@ -7,10 +7,9 @@ namespace ScipPhp\Composer;
 use RuntimeException;
 
 use function array_merge;
-use function count;
-use function dirname;
 use function is_array;
 use function is_file;
+use function is_string;
 use function realpath;
 use function str_replace;
 use function strlen;
@@ -33,14 +32,23 @@ final class ClassMap
     {
         $composerDir = $vendorDir . '/composer';
 
-        $classMap = require $composerDir . '/autoload_classmap.php';
-        $this->classMap = is_array($classMap) ? $classMap : [];
+        /** @var mixed $classMapRaw */
+        $classMapRaw = require $composerDir . '/autoload_classmap.php';
+        /** @var array<non-empty-string, non-empty-string> $classMap */
+        $classMap = is_array($classMapRaw) ? $classMapRaw : [];
+        $this->classMap = $classMap;
 
-        $psr4 = require $composerDir . '/autoload_psr4.php';
-        $this->psr4 = is_array($psr4) ? $psr4 : [];
+        /** @var mixed $psr4Raw */
+        $psr4Raw = require $composerDir . '/autoload_psr4.php';
+        /** @var array<non-empty-string, list<non-empty-string>> $psr4 */
+        $psr4 = is_array($psr4Raw) ? $psr4Raw : [];
+        $this->psr4 = $psr4;
 
-        $psr0 = require $composerDir . '/autoload_namespaces.php';
-        $this->psr0 = is_array($psr0) ? $psr0 : [];
+        /** @var mixed $psr0Raw */
+        $psr0Raw = require $composerDir . '/autoload_namespaces.php';
+        /** @var array<non-empty-string, list<non-empty-string>> $psr0 */
+        $psr0 = is_array($psr0Raw) ? $psr0Raw : [];
+        $this->psr0 = $psr0;
     }
 
     /** @param non-empty-string $class */
@@ -77,7 +85,7 @@ final class ClassMap
             }
 
             $relativePath = substr($logicalPath, $len);
-            if ($relativePath === false || $relativePath === '') {
+            if ($relativePath === '') {
                 continue;
             }
 
@@ -87,6 +95,9 @@ final class ClassMap
             }
 
             foreach ($dirs as $dir) {
+                if (!is_string($dir) || $dir === '') {
+                    continue;
+                }
                 $resolved = $this->resolveBaseDir($dir);
                 $f = $resolved . '/' . $relativePath;
                 if (is_file($f)) {
@@ -120,7 +131,7 @@ final class ClassMap
             }
 
             $relativePath = substr($logicalPath, strlen($prefix));
-            if ($relativePath === false || $relativePath === '') {
+            if ($relativePath === '') {
                 continue;
             }
 
@@ -129,6 +140,9 @@ final class ClassMap
             }
 
             foreach ($dirs as $dir) {
+                if (!is_string($dir) || $dir === '') {
+                    continue;
+                }
                 $resolved = $this->resolveBaseDir($dir);
                 $f = $resolved . '/' . $prefix . '/' . $relativePath;
                 if (is_file($f)) {

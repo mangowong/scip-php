@@ -11,11 +11,14 @@ use ScipPhp\Composer\ProjectFiles;
 
 use function count;
 use function explode;
+use function file_get_contents;
 use function implode;
 use function is_array;
+use function json_decode;
 use function str_starts_with;
 
 use const DIRECTORY_SEPARATOR;
+use const JSON_THROW_ON_ERROR;
 use const PHP_VERSION;
 
 final class ComposerTest extends TestCase
@@ -84,8 +87,8 @@ final class ComposerTest extends TestCase
     /** @return array<array-key, mixed> */
     private function parseComposerJson(string $dir): array
     {
-        $content = \file_get_contents($dir . '/composer.json');
-        $json = \json_decode($content ?: '', associative: true, flags: \JSON_THROW_ON_ERROR);
+        $content = file_get_contents($dir . '/composer.json');
+        $json = json_decode($content !== false ? $content : '', associative: true, flags: JSON_THROW_ON_ERROR);
         return is_array($json) ? $json : [];
     }
 
