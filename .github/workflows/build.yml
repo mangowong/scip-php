@@ -65,6 +65,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Setup MSVC (Windows only)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
@@ -82,27 +88,34 @@ jobs:
           if [ "${{ runner.os }}" != "Windows" ]; then chmod +x ${{ matrix.spc_bin }}; fi
           ./${{ matrix.spc_bin }} --version
 
-      - name: Build static PHP with micro SAPI
+      - name: Build static PHP with micro SAPI (Linux/macOS)
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           ./${{ matrix.spc_bin }} doctor --auto-fix 2>&1 || true
           ./${{ matrix.spc_bin }} craft --debug 2>&1
 
-      - name: Combine binary
+      - name: Build static PHP with micro SAPI (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          ${{ matrix.spc_bin }} doctor --auto-fix 2>&1 || true
+          ${{ matrix.spc_bin }} craft --debug 2>&1
+
+      - name: Combine binary (Linux/macOS)
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           ./${{ matrix.spc_bin }} micro:combine scip-php.phar -O ${{ matrix.output }}
-          ls -la ${{ matrix.output }} || echo "Output file not found!"
-
-      - name: Smoke test (Linux/macOS)
-        if: runner.os != 'Windows'
-        run: |
           chmod +x ./${{ matrix.output }}
           ./${{ matrix.output }} --help
 
-      - name: Smoke test (Windows)
+      - name: Combine binary (Windows)
         if: runner.os == 'Windows'
-        run: .\${{ matrix.output }} --help
+        shell: cmd
+        run: |
+          ${{ matrix.spc_bin }} micro:combine scip-php.phar -O ${{ matrix.output }}
+          .\${{ matrix.output }} --help
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
