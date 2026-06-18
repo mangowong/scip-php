@@ -46,17 +46,16 @@ jobs:
         shell: bash
         run: |
           curl -fsSL -o ${{ matrix.spc_bin }} https://dl.static-php.dev/static-php-cli/spc-bin/nightly/${{ matrix.spc_bin }}
-          chmod +x ${{ matrix.spc_bin }}
+          if [ "${{ runner.os }}" != "Windows" ]; then chmod +x ${{ matrix.spc_bin }}; fi
           ./${{ matrix.spc_bin }} --version
 
       - name: Install Box
         shell: bash
         run: |
           curl -LSs https://github.com/box-project/box/releases/latest/download/box.phar -o box.phar
-          chmod +x box.phar
 
       - name: Build PHAR
-        run: php box.phar compile
+        run: php box.phar compile --no-parallel
 
       - name: Verify PHAR
         shell: bash
