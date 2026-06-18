@@ -1,87 +1,96 @@
-  <?php
-  
-  declare(strict_types=1);
-  
-  namespace TestData
-  {
-      use Exception;
+<?php
+
+declare(strict_types=1);
+
+namespace TestData
+{
+    use Exception;
 //        ^^^^^^^^^ reference scip-php composer php 8.5.4 Exception#
-  
-      final class ClassH extends Exception
+
+    final class ClassH extends Exception
 //                ^^^^^^ definition scip-php composer davidrjenni/scip-php-test 2879a47ba00225b1d0cf31ebe8b9fc7f6cd28be5 TestData/ClassH#
-//                documentation
-//                > ```php
-//                > final class ClassH extends Exception
-//                > ```
+//                       kind Class
+//                       display_name ClassH
+//                       signature_documentation
+//                       > final class ClassH extends Exception
 //                               ^^^^^^^^^ reference scip-php composer php 8.5.4 Exception#
-      {
-  
-          public function __construct()
+    {
+//⌄ enclosing_range_start scip-php composer davidrjenni/scip-php-test 2879a47ba00225b1d0cf31ebe8b9fc7f6cd28be5 TestData/ClassH#
+
+        public function __construct()
 //                        ^^^^^^^^^^^ definition scip-php composer davidrjenni/scip-php-test 2879a47ba00225b1d0cf31ebe8b9fc7f6cd28be5 TestData/ClassH#__construct().
-//                        documentation
-//                        > ```php
-//                        > public function __construct()
-//                        > ```
-          {
-              parent::__construct();
+//                                   kind Method
+//                                   display_name __construct
+//                                   signature_documentation
+//                                   > public function __construct()
+        {
+//⌄ enclosing_range_start scip-php composer davidrjenni/scip-php-test 2879a47ba00225b1d0cf31ebe8b9fc7f6cd28be5 TestData/ClassH#__construct().
+            parent::__construct();
 //            ^^^^^^ reference scip-php composer php 8.5.4 Exception#
 //                    ^^^^^^^^^^^ reference scip-php composer php 8.5.4 Exception#__construct().
-          }
-  
-          public function h1(): int
+//⌃ enclosing_range_end scip-php composer davidrjenni/scip-php-test 2879a47ba00225b1d0cf31ebe8b9fc7f6cd28be5 TestData/ClassH#__construct().
+        }
+
+        public function h1(): int
 //                        ^^ definition scip-php composer davidrjenni/scip-php-test 2879a47ba00225b1d0cf31ebe8b9fc7f6cd28be5 TestData/ClassH#h1().
-//                        documentation
-//                        > ```php
-//                        > public function h1(): int
-//                        > ```
-          {
-              $x = \TestData4\fun2()->f2()->a2();
+//                               kind Method
+//                               display_name h1
+//                               signature_documentation
+//                               > public function h1(): int
+        {
+//⌄ enclosing_range_start scip-php composer davidrjenni/scip-php-test 2879a47ba00225b1d0cf31ebe8b9fc7f6cd28be5 TestData/ClassH#h1().
+            $x = \TestData4\fun2()->f2()->a2();
 //                 ^^^^^^^^^^^^^^^ reference scip-php composer davidrjenni/scip-php-test 2879a47ba00225b1d0cf31ebe8b9fc7f6cd28be5 TestData4/fun2().
 //                                    ^^ reference scip-php composer davidrjenni/scip-php-test 2879a47ba00225b1d0cf31ebe8b9fc7f6cd28be5 TestData/ClassF#f2().
 //                                          ^^ reference scip-php composer davidrjenni/scip-php-test 2879a47ba00225b1d0cf31ebe8b9fc7f6cd28be5 TestData/ClassA#a2().
-              return $this->getCode() + fun2()->a2() * $x;
+            return $this->getCode() + fun2()->a2() * $x;
 //                          ^^^^^^^ reference scip-php composer php 8.5.4 Exception#getCode().
 //                                      ^^^^ reference scip-php composer davidrjenni/scip-php-test 2879a47ba00225b1d0cf31ebe8b9fc7f6cd28be5 fun2().
 //                                              ^^ reference scip-php composer davidrjenni/scip-php-test 2879a47ba00225b1d0cf31ebe8b9fc7f6cd28be5 TestData/ClassA#a2().
-          }
-      }
-  }
-  
-  // https://www.php.net/manual/en/language.namespaces.definitionmultiple.php
-  
-  namespace TestData2
-  {
-      final class ClassJ
+//⌃ enclosing_range_end scip-php composer davidrjenni/scip-php-test 2879a47ba00225b1d0cf31ebe8b9fc7f6cd28be5 TestData/ClassH#h1().
+        }
+//⌃ enclosing_range_end scip-php composer davidrjenni/scip-php-test 2879a47ba00225b1d0cf31ebe8b9fc7f6cd28be5 TestData/ClassH#
+    }
+}
+
+// https://www.php.net/manual/en/language.namespaces.definitionmultiple.php
+
+namespace TestData2
+{
+    final class ClassJ
 //                ^^^^^^ definition scip-php composer davidrjenni/scip-php-test 2879a47ba00225b1d0cf31ebe8b9fc7f6cd28be5 TestData2/ClassJ#
-//                documentation
-//                > ```php
-//                > final class ClassJ
-//                > ```
-      {
-          public const J2 = 42;
+//                       kind Class
+//                       display_name ClassJ
+//                       signature_documentation
+//                       > final class ClassJ
+    {
+//⌄ enclosing_range_start scip-php composer davidrjenni/scip-php-test 2879a47ba00225b1d0cf31ebe8b9fc7f6cd28be5 TestData2/ClassJ#
+        public const J2 = 42;
 //                     ^^ definition scip-php composer davidrjenni/scip-php-test 2879a47ba00225b1d0cf31ebe8b9fc7f6cd28be5 TestData2/ClassJ#J2.
-//                     documentation
-//                     > ```php
-//                     > public J2 = 42
-//                     > ```
-      }
-  }
-  
-  namespace
-  {
-      final class ClassJ
+//                            kind Constant
+//                            display_name J2
+//                            signature_documentation
+//                            > public J2 = 42
+//⌃ enclosing_range_end scip-php composer davidrjenni/scip-php-test 2879a47ba00225b1d0cf31ebe8b9fc7f6cd28be5 TestData2/ClassJ#
+    }
+}
+
+namespace
+{
+    final class ClassJ
 //                ^^^^^^ definition scip-php composer davidrjenni/scip-php-test 2879a47ba00225b1d0cf31ebe8b9fc7f6cd28be5 ClassJ#
-//                documentation
-//                > ```php
-//                > final class ClassJ
-//                > ```
-      {
-          public const J3 = 42;
+//                       kind Class
+//                       display_name ClassJ
+//                       signature_documentation
+//                       > final class ClassJ
+    {
+//⌄ enclosing_range_start scip-php composer davidrjenni/scip-php-test 2879a47ba00225b1d0cf31ebe8b9fc7f6cd28be5 ClassJ#
+        public const J3 = 42;
 //                     ^^ definition scip-php composer davidrjenni/scip-php-test 2879a47ba00225b1d0cf31ebe8b9fc7f6cd28be5 ClassJ#J3.
-//                     documentation
-//                     > ```php
-//                     > public J3 = 42
-//                     > ```
-      }
-  }
-  
+//                            kind Constant
+//                            display_name J3
+//                            signature_documentation
+//                            > public J3 = 42
+//⌃ enclosing_range_end scip-php composer davidrjenni/scip-php-test 2879a47ba00225b1d0cf31ebe8b9fc7f6cd28be5 ClassJ#
+    }
+}
