@@ -6,6 +6,7 @@ namespace ScipPhp\Parser;
 
 use Closure;
 use Override;
+use PhpParser\Error as ParseError;
 use PhpParser\Node;
 use PhpParser\NodeTraverser;
 use PhpParser\NodeVisitor\NameResolver;
@@ -13,7 +14,6 @@ use PhpParser\NodeVisitor\ParentConnectingVisitor;
 use PhpParser\NodeVisitorAbstract;
 use PhpParser\Parser as PhpParser;
 use PhpParser\ParserFactory;
-use RuntimeException;
 use ScipPhp\File\Reader;
 
 final readonly class Parser
@@ -39,12 +39,22 @@ final readonly class Parser
     {
         $code = Reader::read($filename);
         if ($code === '') {
-            throw new RuntimeException("Cannot parse file: {$filename}.");
+            return;
         }
 
-        $stmts = $this->parser->parse($code);
+        $stmts = null;
+        try {
+            $stmts = $this->parser->parse($code);
+        } catch (ParseError $e) {
+            fwrite(STDERR, "Warning: parse error in {$filename}: {$e->getMessage()}\n");
+            return;
+        } catch (\Throwable $e) {
+            fwrite(STDERR, "Warning: failed to parse {$filename}: {$e->getMessage()}\n");
+            return;
+        }
         if ($stmts === null) {
-            throw new RuntimeException("Cannot parse file: {$filename}.");
+            fwrite(STDERR, "Warning: cannot parse file: {$filename}\n");
+            return;
         }
 
         $pos = new PosResolver($code);
